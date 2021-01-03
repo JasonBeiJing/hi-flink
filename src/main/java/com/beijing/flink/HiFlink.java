@@ -1,4 +1,4 @@
-package com.beijing.it;
+package com.beijing.flink;
 
 public class HiFlink {
 
