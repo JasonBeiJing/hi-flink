@@ -8,68 +8,55 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.Preconditions;
 
-import com.beijing.flink.stream.util.WordCountData;
+import com.beijing.flink.stream.datasource.WordCountData;
 
 
 public class WordCountStream {
 
 	public static void main(String[] args) throws Exception {
-
-		// Checking input parameters
+		// 构建运行时环境
 		final MultipleParameterTool params = MultipleParameterTool.fromArgs(args);
+		final StreamExecutionEnvironment env = getEnv(params);
 
-		// set up the execution environment
-		final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+		// 获取流处理数据源 - DataStream
+		DataStream<String> text = getDatasource(env, params);
 
-		// make parameters available in the web interface
-		env.getConfig().setGlobalJobParameters(params);
+		// 算子运算
+		DataStream<Tuple2<String, Integer>> counts = text.flatMap(new Tokenizer()).keyBy(value -> value.f0).sum(1);
 
-		// get input data
-		DataStream<String> text = null;
-		if (params.has("input")) {
-			// union all the inputs from text files
-			for (String input : params.getMultiParameterRequired("input")) {
-				if (text == null) {
-					text = env.readTextFile(input);
-				} else {
-					text = text.union(env.readTextFile(input));
-				}
-			}
-			Preconditions.checkNotNull(text, "Input DataStream should not be null.");
-		} else {
-			System.out.println("Executing WordCount example with default input data set.");
-			System.out.println("Use --input to specify file input.");
-			// get default test text data - 默认读一个静态数据，体现不出流的感觉来，瞬间就读完了
-			text = env.fromElements(WordCountData.WORDS);
-		}
-
-		DataStream<Tuple2<String, Integer>> counts =
-				// split up the lines in pairs (2-tuples) containing: (word,1)
-				text.flatMap(new Tokenizer())
-						// group by the tuple field "0" and sum up tuple field "1"
-						.keyBy(value -> value.f0).sum(1);
-
-		// emit result
+		// 输出结果
 		if (params.has("output")) {
 			counts.writeAsText(params.get("output"));
 		} else {
-			System.out.println("Printing result to stdout. Use --output to specify output path.");
 			counts.print();
 		}
-		// execute program
 		env.execute("Streaming WordCount");
 	}
 
-	// *************************************************************************
-	// USER FUNCTIONS
-	// *************************************************************************
+	// 流处理执行环境 - StreamExecutionEnvironment
+	private static StreamExecutionEnvironment getEnv(MultipleParameterTool params) {
+		final StreamExecutionEnvironment environment = StreamExecutionEnvironment.getExecutionEnvironment();
+		environment.getConfig().setGlobalJobParameters(params);
+		return environment;
+	}
 
-	/**
-	 * Implements the string tokenizer that splits sentences into words as a
-	 * user-defined FlatMapFunction. The function takes a line (String) and splits
-	 * it into multiple pairs in the form of "(word,1)"
-	 * ({@code Tuple2<String, Integer>}).
-	 */
+	private static DataStream<String> getDatasource(StreamExecutionEnvironment env, MultipleParameterTool params) {
+		DataStream<String> dataSource = null;
+		if (params.has("input")) {
+			for (String input : params.getMultiParameterRequired("input")) {
+				if (dataSource == null) {
+					dataSource = env.readTextFile(input);
+				} else {
+					dataSource = dataSource.union(env.readTextFile(input));
+				}
+			}
+			Preconditions.checkNotNull(dataSource, "Input DataStream should not be null.");
+		} else {
+			dataSource = env.fromElements(WordCountData.WORDS);
+		}
+		return dataSource;
+	}
+
 	public static final class Tokenizer implements FlatMapFunction<String, Tuple2<String, Integer>> {
 
 		/**
@@ -80,8 +67,8 @@ public class WordCountStream {
 		@Override
 		public void flatMap(String value, Collector<Tuple2<String, Integer>> out) {
 			// normalize and split the line
+			System.err.println("无序==>" + value);
 			String[] tokens = value.toLowerCase().split("\\W+");
-
 			// emit the pairs
 			for (String token : tokens) {
 				if (token.length() > 0) {
